@@ -139,10 +139,16 @@ def upload_sftp():
         update_sheet_status(filename, "エラー", str(e))
         return jsonify({"status": "error", "message": str(e)}), 500
 
+# 📌 API ステータス確認
+@app.route("/status", methods=["GET"])
+def status():
+    return jsonify({"status": "running"}), 200
+
 # 📌 ルートページ
 @app.route("/")
 def home():
     return "Flask API is running!", 200
 
 if __name__ == "__main__":
+    print("🚀 Flask サーバー起動: ポート 10000")
     app.run(host="0.0.0.0", port=10000, debug=True)
