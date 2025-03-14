@@ -1,0 +1,7 @@
+Flask
+paramiko
+gspread
+oauth2client
+gunicorn
+google-api-python-client
+python-dotenv
