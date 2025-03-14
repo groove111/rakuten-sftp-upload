@@ -8,9 +8,9 @@ from googleapiclient.http import MediaIoBaseDownload
 from dotenv import load_dotenv
 import os
 import json
+import base64
 import platform
 import io
-import datetime
 
 # 📌 Flask アプリの初期化
 app = Flask(__name__)
@@ -18,13 +18,17 @@ app = Flask(__name__)
 # 📌 環境変数をロード
 load_dotenv()
 
-# 📌 Google 認証情報を .env から取得
-creds_json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
-if not creds_json_str:
+# 📌 Google 認証情報を Base64 からデコード
+creds_json_base64 = os.getenv("GOOGLE_CREDENTIALS_JSON")
+if not creds_json_base64:
     raise ValueError("❌ 環境変数 GOOGLE_CREDENTIALS_JSON が設定されていません")
 
-creds_dict = json.loads(creds_json_str)
-creds = Credentials.from_service_account_info(creds_dict)
+try:
+    creds_json_str = base64.b64decode(creds_json_base64).decode("utf-8")
+    creds_dict = json.loads(creds_json_str)
+    creds = Credentials.from_service_account_info(creds_dict)
+except Exception as e:
+    raise ValueError(f"❌ GOOGLE_CREDENTIALS_JSON のデコードに失敗しました: {e}")
 
 # 📌 Google Sheets & Google Drive 設定
 SPREADSHEET_ID = "1_t8pThdb0kFyIyRfNtC-VLsGa6HopgGQoEOqKyisjME"
@@ -43,22 +47,26 @@ SFTP_UPLOAD_PATH = "/ritem/batch"
 
 # 📌 アカウント情報を取得
 def get_sftp_credentials(account_name):
-    sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_ACCOUNTS)
-    data = sheet.get_all_values()
+    try:
+        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_ACCOUNTS)
+        data = sheet.get_all_values()
 
-    headers = data[0]
-    account_data = [dict(zip(headers, row)) for row in data[1:]]
+        headers = data[0]
+        account_data = [dict(zip(headers, row)) for row in data[1:]]
 
-    account_mapping = {
-        "アウトスタイル": "outstyle-r",
-        "LIMITEST": "limitest"
-    }
+        account_mapping = {
+            "アウトスタイル": "outstyle-r",
+            "LIMITEST": "limitest"
+        }
 
-    for row in account_data:
-        if account_mapping.get(row["アカウント名"].strip(), row["アカウント名"].strip()) == account_name.strip():
-            return row["FTP用ユーザー名"], row["FTP用パスワード"]
+        for row in account_data:
+            if account_mapping.get(row["アカウント名"].strip(), row["アカウント名"].strip()) == account_name.strip():
+                return row["FTP用ユーザー名"], row["FTP用パスワード"]
 
-    return None, None
+        return None, None
+    except Exception as e:
+        print(f"❌ アカウント情報取得エラー: {e}")
+        return None, None
 
 # 📌 予約データを取得
 @app.route("/get_reservations", methods=["GET"])
@@ -79,13 +87,17 @@ def get_reservations():
 
 # 📌 Google Drive 内のファイル ID を取得
 def get_google_drive_file_path(filename):
-    results = drive_service.files().list(
-        q=f"'{FOLDER_ID}' in parents and name='{filename}' and trashed=false",
-        fields="files(id, name)"
-    ).execute()
-    
-    files = results.get("files", [])
-    return files[0]["id"] if files else None
+    try:
+        results = drive_service.files().list(
+            q=f"'{FOLDER_ID}' in parents and name='{filename}' and trashed=false",
+            fields="files(id, name)"
+        ).execute()
+        
+        files = results.get("files", [])
+        return files[0]["id"] if files else None
+    except Exception as e:
+        print(f"❌ Google Drive ファイル検索エラー: {e}")
+        return None
 
 # 📌 SFTPへアップロード
 @app.route("/upload_sftp", methods=["POST"])
