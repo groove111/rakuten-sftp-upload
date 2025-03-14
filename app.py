@@ -26,10 +26,7 @@ if not creds_json_base64:
 try:
     creds_json_str = base64.b64decode(creds_json_base64).decode("utf-8")
     creds_dict = json.loads(creds_json_str)
-    creds = Credentials.from_service_account_info(creds_dict, scopes=[
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ])
+    creds = Credentials.from_service_account_info(creds_dict)
 except Exception as e:
     raise ValueError(f"❌ GOOGLE_CREDENTIALS_JSON のデコードに失敗しました: {e}")
 
@@ -47,6 +44,30 @@ drive_service = build("drive", "v3", credentials=creds)
 SFTP_HOST = "upload.rakuten.ne.jp"
 SFTP_PORT = 22
 SFTP_UPLOAD_PATH = "/ritem/batch"
+
+# 📌 スプレッドシートのステータスを更新（✅ `upload_sftp` より前に定義）
+def update_sheet_status(filename, status, error_message=""):
+    try:
+        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_RESERVATIONS)
+        data = sheet.get_all_values()
+
+        headers = data[0]
+        filename_col = headers.index("ファイル名")
+        status_col = headers.index("ステータス")
+
+        if "エラーメッセージ" not in headers:
+            error_col = len(headers)
+            sheet.update_cell(1, error_col + 1, "エラーメッセージ")
+        else:
+            error_col = headers.index("エラーメッセージ")
+
+        for i, row in enumerate(data[1:], start=2):
+            if row[filename_col] == filename:
+                sheet.update_cell(i, status_col + 1, status)
+                sheet.update_cell(i, error_col + 1, error_message)
+                return
+    except Exception as e:
+        print(f"❌ スプレッドシート更新エラー: {str(e)}")
 
 # 📌 アカウント情報を取得
 def get_sftp_credentials(account_name):
@@ -76,32 +97,19 @@ def get_sftp_credentials(account_name):
 def get_reservations():
     try:
         print("📌 `/get_reservations` にアクセスされました")
-
-        # ✅ Google Sheets に接続
         sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_RESERVATIONS)
-        print("✅ Google Sheets に接続成功")
-
-        # ✅ データ取得
         data = sheet.get_all_values()
-        print(f"📌 取得したデータ (最初の3行): {data[:3]}")  # 取得したデータの一部をログに出力
 
-        # ✅ 空データチェック
         if not data:
             raise ValueError("❌ スプレッドシートにデータがありません")
 
         headers = data[0]
-        records = [
-            {key: value for key, value in zip(headers, row)}
-            for row in data[1:] if any(row)
-        ]
+        records = [{key: value for key, value in zip(headers, row)} for row in data[1:] if any(row)]
 
-        print("✅ `/get_reservations` のレスポンスを正常に返却")
         return jsonify(records), 200
-
     except Exception as e:
-        print(f"❌ `/get_reservations` でエラー発生: {str(e)}")  # エラーメッセージをログ出力
+        print(f"❌ `/get_reservations` でエラー発生: {str(e)}")
         return jsonify({"error": str(e)}), 500
-
 
 # 📌 Google Drive 内のファイル ID を取得
 def get_google_drive_file_path(filename):
@@ -174,4 +182,4 @@ def home():
     return "Flask API is running!", 200
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
