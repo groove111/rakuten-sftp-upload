@@ -1,0 +1,201 @@
+gas.gs
+
+var SPREADSHEET_ID = "1_t8pThdb0kFyIyRfNtC-VLsGa6HopgGQoEOqKyisjME"; 
+var FOLDER_ID = "1ykCNsVXqi619OzXwLTqVJIm1WbqWcMgn";
+
+// 📌 スプレッドシート取得
+function getSheet(sheetName) {
+  return SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(sheetName);
+}
+
+// 📌 アカウントリストを取得
+function getAccounts() {
+  var sheet = getSheet("アカウント管理");
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  return data.flat();
+}
+
+// 📌 Google Drive にアップロード & スプレッドシートへ記録
+function uploadFile(formData) {
+  try {
+    var folder = DriveApp.getFolderById(FOLDER_ID);
+    var blob = Utilities.newBlob(Utilities.base64Decode(formData.fileData), formData.mimeType, formData.fileName);
+
+    // ユニークなファイル名を作成
+    var timestamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", "_").split(".")[0];
+    var uniqueFileName = timestamp + "_" + formData.fileName;
+    var file = folder.createFile(blob.setName(uniqueFileName));
+
+    // スプレッドシートに記録
+    var sheet = getSheet("アップロード予約");
+    sheet.appendRow([formData.uploadTime, formData.account, uniqueFileName, "予約済み"]);
+
+    return "✅ アップロード成功: " + uniqueFileName;
+  } catch (error) {
+    return "❌ アップロード失敗: " + error.message;
+  }
+}
+
+// 📌 Webアプリのエントリーポイント
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile("upload_form").setTitle("楽天SFTPアップロード");
+}
+
+
+GAS ver2
+var SPREADSHEET_ID = "1_t8pThdb0kFyIyRfNtC-VLsGa6HopgGQoEOqKyisjME"; 
+var FOLDER_ID = "1ykCNsVXqi619OzXwLTqVJIm1WbqWcMgn";
+
+// 📌 スプレッドシート取得
+function getSheet(sheetName) {
+  return SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(sheetName);
+}
+
+// 📌 アカウントリストを取得
+function getAccounts() {
+  var sheet = getSheet("アカウント管理");
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  return data.flat();
+}
+
+function checkAndUpload() {
+  var sheet = getSheet("アップロード予約");
+  var data = sheet.getDataRange().getValues();
+  var now = new Date();
+  var API_URL = "https://your-deployed-api-url.com/upload_sftp";
+
+  for (var i = 1; i < data.length; i++) {
+    var uploadTime = new Date(data[i][0]);
+    var accountName = data[i][1];
+    var filename = data[i][2];
+    var status = data[i][3];
+
+    if (status === "予約済み" && now >= uploadTime) {
+      var options = {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify({
+          account: accountName,
+          filename: filename
+        })
+      };
+
+      var response = UrlFetchApp.fetch(API_URL, options);
+      var result = JSON.parse(response.getContentText());
+      var newStatus = result.status === "success" ? "完了" : "エラー";
+      sheet.getRange(i + 1, 4).setValue(newStatus);
+    }
+  }
+}
+
+
+// 📌 Google Drive にアップロード & スプレッドシートへ記録
+function uploadFile(formData) {
+  try {
+    var folder = DriveApp.getFolderById(FOLDER_ID);
+    var blob = Utilities.newBlob(Utilities.base64Decode(formData.fileData), formData.mimeType, formData.fileName);
+
+    // ユニークなファイル名を作成
+    var timestamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", "_").split(".")[0];
+    var uniqueFileName = timestamp + "_" + formData.fileName;
+    var file = folder.createFile(blob.setName(uniqueFileName));
+
+    // スプレッドシートに記録
+    var sheet = getSheet("アップロード予約");
+    sheet.appendRow([formData.uploadTime, formData.account, uniqueFileName, "予約済み"]);
+
+    return "✅ アップロード成功: " + uniqueFileName;
+  } catch (error) {
+    return "❌ アップロード失敗: " + error.message;
+  }
+}
+
+// 📌 Webアプリのエントリーポイント
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile("upload_form").setTitle("楽天SFTPアップロード");
+}
+
+
+
+
+
+html
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>楽天SFTP アップロード</title>
+  <style>
+    body { font-family: 'Arial', sans-serif; text-align: center; background-color: #f5f5f5; color: #333; }
+    .container { width: 50%; margin: auto; padding: 20px; background: white; border-radius: 10px; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); }
+    input, select, button { margin: 10px; padding: 10px; width: 80%; font-size: 16px; }
+    button { background-color: #007bff; color: white; border: none; cursor: pointer; transition: 0.3s; }
+    button:hover { background-color: #0056b3; }
+    .status { font-weight: bold; margin-top: 10px; }
+    .status.success { color: green; }
+    .status.error { color: red; }
+    .status.loading { color: blue; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>楽天SFTP CSVアップロード</h2>
+    <input type="file" id="myFile">
+    <select id="account"></select>
+    <input type="datetime-local" id="uploadTime">
+    <button onclick="upload()">アップロード</button>
+    <p id="message" class="status"></p>
+  </div>
+
+  <script>
+    function upload() {
+      var file = document.getElementById("myFile").files[0];
+      var account = document.getElementById("account").value;
+      var uploadTime = document.getElementById("uploadTime").value;
+
+      if (!file || !uploadTime) {
+        document.getElementById("message").innerText = "⚠ 必須項目を入力してください";
+        document.getElementById("message").className = "status error";
+        return;
+      }
+
+      document.getElementById("message").innerText = "⏳ アップロード中...";
+      document.getElementById("message").className = "status loading";
+
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        var formData = {
+          fileData: btoa(e.target.result),
+          mimeType: file.type,
+          fileName: file.name,
+          account: account,
+          uploadTime: uploadTime
+        };
+
+        google.script.run.withSuccessHandler(function(response) {
+          document.getElementById("message").innerText = response;
+          document.getElementById("message").className = response.includes("成功") ? "status success" : "status error";
+        }).uploadFile(formData);
+      };
+      reader.readAsBinaryString(file);
+    }
+
+    function loadAccounts() {
+      google.script.run.withSuccessHandler(function(accounts) {
+        var select = document.getElementById("account");
+        select.innerHTML = "";
+        accounts.forEach(account => {
+          var option = document.createElement("option");
+          option.value = account;
+          option.text = account;
+          select.appendChild(option);
+        });
+      }).getAccounts();
+    }
+
+    window.onload = loadAccounts;
+  </script>
+</body>
+</html>
