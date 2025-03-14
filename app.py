@@ -10,14 +10,15 @@ import json
 import base64
 import platform
 import io
+import time
 
-# 📌 Flask アプリの初期化
+# Flask 初期化
 app = Flask(__name__)
 
-# 📌 環境変数をロード
+# 環境変数をロード
 load_dotenv()
 
-# 📌 Google 認証情報をデコード
+# Google 認証情報
 creds_json_base64 = os.getenv("GOOGLE_CREDENTIALS_JSON")
 if not creds_json_base64:
     raise ValueError("❌ GOOGLE_CREDENTIALS_JSON が設定されていません")
@@ -32,22 +33,22 @@ try:
 except Exception as e:
     raise ValueError(f"❌ GOOGLE_CREDENTIALS_JSON のデコードに失敗しました: {e}")
 
-# 📌 Google Sheets & Drive 設定
+# Google Sheets & Drive 設定
 SPREADSHEET_ID = "1_t8pThdb0kFyIyRfNtC-VLsGa6HopgGQoEOqKyisjME"
 SHEET_ACCOUNTS = "アカウント管理"
 SHEET_RESERVATIONS = "アップロード予約"
 FOLDER_ID = "1ykCNsVXqi619OzXwLTqVJIm1WbqWcMgn"
 
-# 📌 Google API の初期化
+# Google API 初期化
 client = gspread.authorize(creds)
 drive_service = build("drive", "v3", credentials=creds)
 
-# 📌 SFTP 設定
+# SFTP 設定
 SFTP_HOST = "upload.rakuten.ne.jp"
 SFTP_PORT = 22
 SFTP_UPLOAD_PATH = "/ritem/batch"
 
-# ✅ **スプレッドシートのステータス更新**
+# ✅ スプレッドシートのステータス更新
 def update_sheet_status(filename, status, error_message=""):
     try:
         sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_RESERVATIONS)
@@ -66,7 +67,7 @@ def update_sheet_status(filename, status, error_message=""):
     except Exception as e:
         print(f"❌ スプレッドシート更新エラー: {e}")
 
-# ✅ **アカウント情報取得**
+# ✅ SFTP アカウント情報取得
 def get_sftp_credentials(account_name):
     try:
         sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_ACCOUNTS)
@@ -81,7 +82,7 @@ def get_sftp_credentials(account_name):
         print(f"❌ アカウント情報取得エラー: {e}")
         return None, None
 
-# ✅ **Google Drive のファイル ID を取得**
+# ✅ Google Drive のファイル ID を取得
 def get_google_drive_file_id(filename):
     try:
         results = drive_service.files().list(
@@ -94,13 +95,11 @@ def get_google_drive_file_id(filename):
         print(f"❌ Google Drive ファイル検索エラー: {e}")
         return None
 
-# ✅ **SFTP へアップロード**
+# ✅ SFTP へアップロード
 @app.route("/upload_sftp", methods=["POST"])
 def upload_sftp():
     try:
         data = request.get_json()
-        print(f"📌 受信データ: {data}")
-
         account = data.get("account")
         filename = data.get("filename")
 
@@ -117,10 +116,7 @@ def upload_sftp():
             update_sheet_status(filename, "エラー", "Google Drive にファイルが見つかりません")
             return jsonify({"status": "error", "message": "Google Drive にファイルが見つかりません"}), 404
 
-        tmp_dir = "/tmp" if platform.system() != "Windows" else "./tmp"
-        os.makedirs(tmp_dir, exist_ok=True)
-
-        file_path = os.path.join(tmp_dir, filename)
+        file_path = f"/tmp/{filename}"
         request_drive = drive_service.files().get_media(fileId=file_id)
 
         with open(file_path, "wb") as f:
@@ -129,8 +125,6 @@ def upload_sftp():
             while not done:
                 status, done = downloader.next_chunk()
 
-        print(f"📂 ダウンロード完了: {file_path}")
-
         transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
         transport.connect(username=username, password=password)
         sftp = paramiko.SFTPClient.from_transport(transport)
@@ -138,38 +132,31 @@ def upload_sftp():
         remote_path = f"{SFTP_UPLOAD_PATH}/{filename}"
         sftp.put(file_path, remote_path)
 
-        print(f"✅ SFTP アップロード成功: {filename}")
-
-        # 📌 **アップロード確認**
         uploaded_files = sftp.listdir(SFTP_UPLOAD_PATH)
-        if filename in uploaded_files:
-            print(f"✅ SFTP 確認済み: {filename} がサーバー上に存在します")
-        else:
-            print(f"⚠️ SFTP 上に {filename} が見つかりません")
+        if filename not in uploaded_files:
+            raise Exception("SFTP にファイルが見つかりません")
 
         sftp.close()
         transport.close()
 
         drive_service.files().delete(fileId=file_id).execute()
-        print(f"🗑 Google Drive から {filename} を削除しました")
 
         update_sheet_status(filename, "アップロード完了")
         return jsonify({"status": "success", "message": f"{filename} のアップロード成功"}), 200
 
     except Exception as e:
-        print(f"❌ `/upload_sftp` でエラー: {str(e)}")
         update_sheet_status(filename, "エラー", str(e))
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# ✅ **API ステータス確認**
-@app.route("/status", methods=["GET"])
-def status():
-    return jsonify({"status": "running"}), 200
-
-# ✅ **ルートページ**
-@app.route("/")
-def home():
-    return "Flask API is running!", 200
+# ✅ get_reservations API 追加（404エラー解消）
+@app.route("/get_reservations", methods=["GET"])
+def get_reservations():
+    try:
+        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_RESERVATIONS)
+        data = sheet.get_all_values()
+        return jsonify(data), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000, debug=True)
