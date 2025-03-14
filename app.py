@@ -42,12 +42,13 @@ FOLDER_ID = "1ykCNsVXqi619OzXwLTqVJIm1WbqWcMgn"
 client = gspread.authorize(creds)
 drive_service = build("drive", "v3", credentials=creds)
 
-# 📌 SFTP 設定
-SFTP_HOST = "upload.rakuten.ne.jp"
-SFTP_PORT = 22
-SFTP_UPLOAD_PATH = "/ritem/batch"
+# 📌 アカウント名のマッピング
+ACCOUNT_MAPPING = {
+    "アウトスタイル": "outstyle-r",
+    "LIMITEST": "limitest"
+}
 
-# ✅ スプレッドシートのステータス更新
+# 📌 スプレッドシートのステータス更新
 def update_sheet_status(filename, status, error_message=""):
     """スプレッドシートのステータスを更新"""
     try:
@@ -87,12 +88,16 @@ def get_sftp_credentials(account_name):
 
         print(f"🔍 Google Sheets から取得したアカウントデータ: {account_data}")
 
+        # API 側の `account_name` を Google Sheets の表記に変換
+        mapped_account_name = next((k for k, v in ACCOUNT_MAPPING.items() if v == account_name), account_name)
+        print(f"🔄 マッピング後のアカウント名: {mapped_account_name}")
+
         for row in account_data:
-            if row.get("アカウント名", "").strip() == account_name.strip():
-                print(f"✅ {account_name} の認証情報を取得")
+            if row.get("アカウント名", "").strip() == mapped_account_name.strip():
+                print(f"✅ {mapped_account_name} の認証情報を取得")
                 return row.get("FTP用ユーザー名"), row.get("FTP用パスワード")
 
-        print(f"❌ {account_name} の認証情報が見つかりません")
+        print(f"❌ {mapped_account_name} の認証情報が見つかりません")
         return None, None
     except Exception as e:
         print(f"❌ アカウント情報取得エラー: {e}")
