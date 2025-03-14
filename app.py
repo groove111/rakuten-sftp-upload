@@ -122,7 +122,6 @@ def get_google_drive_file_id(filename):
     except Exception as e:
         print(f"❌ Google Drive ファイル検索エラー: {e}")
         return None
-
 # ✅ 予約状況取得（404 解決）
 @app.route("/get_reservations", methods=["GET"])
 def get_reservations():
@@ -136,7 +135,7 @@ def get_reservations():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-# ✅ SFTP アカウント情報を取得（エラーハンドリング強化）
+# ✅ FTPアカウント情報の取得（日本語名対応）
 def get_sftp_credentials(account_name):
     """スプレッドシートからSFTPアカウント情報を取得"""
     try:
@@ -150,10 +149,18 @@ def get_sftp_credentials(account_name):
         headers = data[0]
         account_data = [dict(zip(headers, row)) for row in data[1:]]
 
-        # 受け取ったアカウント名とマッチするものを検索
+        # ✅ 日本語 → 英語アカウント名のマッピング
+        account_mapping = {
+            "アウトスタイル": "outstyle-r",
+            "LIMITEST": "limitest"
+        }
+
+        # ✅ 受け取ったアカウント名を変換
+        account_name_jp = next((k for k, v in account_mapping.items() if v == account_name), account_name)
+
+        # ✅ 取得したデータとマッチング
         for row in account_data:
-            print(f"🔍 チェック中: {row.get('アカウント名')}")  # デバッグ用
-            if row.get("アカウント名") and row["アカウント名"].strip() == account_name.strip():
+            if row.get("アカウント名") and row["アカウント名"].strip() == account_name_jp:
                 return row.get("FTP用ユーザー名"), row.get("FTP用パスワード")
 
         print(f"❌ `{account_name}` の認証情報が見つかりません")
@@ -184,16 +191,16 @@ def get_google_drive_file_path(filename):
         return None
 
 
-# ✅ SFTPへアップロード（ログとエラーハンドリング強化）
+# ✅ SFTPへアップロード（リクエストチェック追加）
 @app.route("/upload_sftp", methods=["POST"])
 def upload_sftp():
     """Google Drive からファイルをダウンロードし SFTP へアップロード"""
     try:
         data = request.get_json()
-        print(f"📌 受信データ: {data}")
 
-        if not data:
-            return jsonify({"status": "error", "message": "リクエストが空です"}), 400
+        # ✅ リクエストデータの検証
+        if not isinstance(data, dict):
+            return jsonify({"status": "error", "message": "リクエストフォーマットが不正です"}), 400
 
         account = data.get("account")
         filename = data.get("filename")
@@ -201,7 +208,7 @@ def upload_sftp():
         if not account or not filename:
             return jsonify({"status": "error", "message": "アカウントまたはファイル名が不足しています"}), 400
 
-        # ✅ SFTP 認証情報の取得と確認
+        # ✅ SFTP 認証情報の取得
         username, password = get_sftp_credentials(account)
         if not username or not password:
             update_sheet_status(filename, "エラー", "FTPアカウント情報が見つかりません")
@@ -254,17 +261,6 @@ def upload_sftp():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-# ✅ ルートページとステータス確認
-@app.route("/")
-def home():
-    return "Flask API is running!", 200
-
-@app.route("/status", methods=["GET"])
-def status():
-    return jsonify({"status": "running"}), 200
-
-
 if __name__ == "__main__":
     print("🚀 Flask サーバー起動: ポート 10000")
     app.run(host="0.0.0.0", port=10000, debug=True)
-
