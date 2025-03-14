@@ -72,8 +72,19 @@ def get_sftp_credentials(account_name):
 @app.route("/get_reservations", methods=["GET"])
 def get_reservations():
     try:
+        print("📌 `/get_reservations` にアクセスされました")
+
+        # ✅ Google Sheets に接続
         sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_RESERVATIONS)
+        print("✅ Google Sheets に接続成功")
+
+        # ✅ データ取得
         data = sheet.get_all_values()
+        print(f"📌 取得したデータ (最初の3行): {data[:3]}")  # 取得したデータの一部をログに出力
+
+        # ✅ 空データチェック
+        if not data:
+            raise ValueError("❌ スプレッドシートにデータがありません")
 
         headers = data[0]
         records = [
@@ -81,9 +92,13 @@ def get_reservations():
             for row in data[1:] if any(row)
         ]
 
+        print("✅ `/get_reservations` のレスポンスを正常に返却")
         return jsonify(records), 200
+
     except Exception as e:
+        print(f"❌ `/get_reservations` でエラー発生: {str(e)}")  # エラーメッセージをログ出力
         return jsonify({"error": str(e)}), 500
+
 
 # 📌 Google Drive 内のファイル ID を取得
 def get_google_drive_file_path(filename):
@@ -168,6 +183,8 @@ def update_sheet_status(filename, status, error_message=""):
                 return
     except Exception as e:
         print(f"❌ スプレッドシート更新エラー: {str(e)}")
+
+
 
 # 📌 API ステータス確認
 @app.route("/status", methods=["GET"])
