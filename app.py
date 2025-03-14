@@ -191,7 +191,24 @@ def get_google_drive_file_path(filename):
         return None
 
 
-# ✅ SFTPへアップロード（リクエストチェック追加）
+# ✅ API ステータス確認 (404エラー対策)
+@app.route("/status", methods=["GET"])
+def status():
+    return jsonify({"status": "running"}), 200
+
+
+# ✅ Google Drive ファイル削除時の権限エラーを解決
+def delete_google_drive_file(file_id, filename):
+    try:
+        drive_service.files().delete(fileId=file_id).execute()
+        print(f"🗑 Google Drive から {filename} を削除しました")
+    except Exception as e:
+        print(f"❌ Google Drive ファイル削除エラー: {e}")
+        update_sheet_status(filename, "エラー", "Google Drive の削除権限がありません")
+        return jsonify({"status": "error", "message": "Google Drive の削除権限がありません"}), 403
+
+
+# ✅ SFTP へアップロード
 @app.route("/upload_sftp", methods=["POST"])
 def upload_sftp():
     """Google Drive からファイルをダウンロードし SFTP へアップロード"""
@@ -248,9 +265,8 @@ def upload_sftp():
         sftp.close()
         transport.close()
 
-        # ✅ Google Drive からファイルを削除
-        drive_service.files().delete(fileId=file_id).execute()
-        print(f"🗑 Google Drive から {filename} を削除しました")
+        # ✅ Google Drive からファイル削除（エラーキャッチ追加）
+        delete_google_drive_file(file_id, filename)
 
         update_sheet_status(filename, "アップロード完了")
         return jsonify({"status": "success", "message": f"{filename} のアップロード成功"}), 200
