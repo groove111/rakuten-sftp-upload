@@ -6,6 +6,7 @@ import os
 import datetime
 import json  # json モジュールをインポート
 import platform  # ← 追加
+import time
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -197,6 +198,67 @@ def update_sheet_status(filename, status, error_message=""):
         print(f"⚠️ スプレッドシート更新失敗: {filename} が見つかりません")
     except Exception as e:
         print(f"❌ スプレッドシート更新エラー: {str(e)}")
+
+import time
+
+def upload_sftp():
+    try:
+        data = request.get_json()
+        account = data["account"]
+        filename = data["filename"]
+
+        print(f"📌 リクエスト受信: アカウント={account}, ファイル名={filename}")
+
+        username, password = get_sftp_credentials(account)
+        if not username or not password:
+            return jsonify({"status": "error", "message": "FTPアカウント情報が見つかりません"}), 400
+
+        print(f"📌 FTP接続情報: ユーザー名={username}, パスワード={password}")
+
+        # ✅ Google Drive からファイルを取得（リトライ処理追加）
+        max_retries = 3
+        file_id = None
+        for i in range(max_retries):
+            file_id = get_google_drive_file_path(filename)
+            if file_id:
+                break
+            print(f"⏳ リトライ中 ({i+1}/{max_retries})...")
+            time.sleep(5)
+
+        if not file_id:
+            return jsonify({"status": "error", "message": f"Google Drive に {filename} が見つかりません"}), 404
+
+        # ✅ Google Drive からダウンロード
+        file_path = f"./tmp/{filename}"
+        request = drive_service.files().get_media(fileId=file_id)
+        with open(file_path, "wb") as f:
+            downloader = MediaIoBaseDownload(f, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+                print(f"📥 ダウンロード進行中: {int(status.progress() * 100)}%")
+
+        print(f"✅ Google Drive のファイルを {file_path} に保存完了")
+
+        # 📌 SFTPアップロード
+        transport = paramiko.Transport(("upload.rakuten.ne.jp", 22))
+        transport.connect(username=username, password=password)
+        sftp = paramiko.SFTPClient.from_transport(transport)
+
+        remote_file_path = f"/ritem/batch/{filename}"
+        print(f"📌 {file_path} を {remote_file_path} にアップロード開始")
+        sftp.put(file_path, remote_file_path)
+
+        # 📌 SFTP接続を閉じる
+        sftp.close()
+        transport.close()
+
+        print(f"✅ {filename} のアップロード完了！")
+        return jsonify({"status": "success", "message": f"✅ {filename} のアップロード完了"}), 200
+
+    except Exception as e:
+        print(f"❌ エラー発生: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 # 📌 ルートページ
