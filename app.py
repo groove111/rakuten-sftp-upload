@@ -26,7 +26,10 @@ if not creds_json_base64:
 try:
     creds_json_str = base64.b64decode(creds_json_base64).decode("utf-8")
     creds_dict = json.loads(creds_json_str)
-    creds = Credentials.from_service_account_info(creds_dict)
+    creds = Credentials.from_service_account_info(creds_dict, scopes=[
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ])
 except Exception as e:
     raise ValueError(f"❌ GOOGLE_CREDENTIALS_JSON のデコードに失敗しました: {e}")
 
@@ -160,32 +163,6 @@ def upload_sftp():
         update_sheet_status(filename, "エラー", str(e))
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# 📌 スプレッドシートのステータスを更新
-def update_sheet_status(filename, status, error_message=""):
-    try:
-        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_RESERVATIONS)
-        data = sheet.get_all_values()
-
-        headers = data[0]
-        filename_col = headers.index("ファイル名")
-        status_col = headers.index("ステータス")
-
-        if "エラーメッセージ" not in headers:
-            error_col = len(headers)
-            sheet.update_cell(1, error_col + 1, "エラーメッセージ")
-        else:
-            error_col = headers.index("エラーメッセージ")
-
-        for i, row in enumerate(data[1:], start=2):
-            if row[filename_col] == filename:
-                sheet.update_cell(i, status_col + 1, status)
-                sheet.update_cell(i, error_col + 1, error_message)
-                return
-    except Exception as e:
-        print(f"❌ スプレッドシート更新エラー: {str(e)}")
-
-
-
 # 📌 API ステータス確認
 @app.route("/status", methods=["GET"])
 def status():
@@ -197,4 +174,4 @@ def home():
     return "Flask API is running!", 200
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=10000, debug=True)
