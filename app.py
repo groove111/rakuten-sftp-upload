@@ -71,6 +71,38 @@ def update_sheet_status(filename, status, error_message=""):
     except Exception as e:
         print(f"❌ スプレッドシート更新エラー: {str(e)}")
 
+# 📌 SFTPアカウント情報を取得
+def get_sftp_credentials(account_name):
+    try:
+        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_ACCOUNTS)
+        data = sheet.get_all_values()
+
+        headers = data[0]
+        account_data = [dict(zip(headers, row)) for row in data[1:]]
+
+        for row in account_data:
+            if row.get("アカウント名") == account_name:
+                return row.get("FTP用ユーザー名"), row.get("FTP用パスワード")
+
+        return None, None
+    except Exception as e:
+        print(f"❌ アカウント情報取得エラー: {e}")
+        return None, None
+
+# 📌 Google Drive 内のファイル ID を取得
+def get_google_drive_file_path(filename):
+    try:
+        results = drive_service.files().list(
+            q=f"'{FOLDER_ID}' in parents and name='{filename}' and trashed=false",
+            fields="files(id, name)"
+        ).execute()
+        
+        files = results.get("files", [])
+        return files[0]["id"] if files else None
+    except Exception as e:
+        print(f"❌ Google Drive ファイル検索エラー: {e}")
+        return None
+
 # 📌 SFTPへアップロード
 @app.route("/upload_sftp", methods=["POST"])
 def upload_sftp():
@@ -109,24 +141,16 @@ def upload_sftp():
 
         print(f"📂 ダウンロード完了: {file_path}")
 
-        # 🔍 SFTP アップロードデバッグ
-        print(f"🌐 SFTP 接続: {SFTP_HOST}")
         transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
         transport.connect(username=username, password=password)
         sftp = paramiko.SFTPClient.from_transport(transport)
 
-        print(f"📂 SFTP アップロード開始: {filename} → {SFTP_UPLOAD_PATH}/{filename}")
-        try:
-            sftp.put(file_path, f"{SFTP_UPLOAD_PATH}/{filename}")
-            print(f"✅ SFTP アップロード成功: {filename}")
-        except Exception as e:
-            print(f"❌ SFTP アップロード失敗: {e}")
-            update_sheet_status(filename, "エラー", f"SFTPエラー: {e}")
-            return jsonify({"status": "error", "message": f"SFTPエラー: {e}"}), 500
+        remote_path = f"{SFTP_UPLOAD_PATH}/{filename}"
+        sftp.put(file_path, remote_path)
 
+        print(f"✅ SFTP アップロード成功: {filename}")
         sftp.close()
         transport.close()
-        print("✅ SFTP 接続を閉じました")
 
         drive_service.files().delete(fileId=file_id).execute()
         print(f"🗑 Google Drive から {filename} を削除しました")
@@ -150,5 +174,4 @@ def home():
     return "Flask API is running!", 200
 
 if __name__ == "__main__":
-    print("🚀 Flask サーバー起動: ポート 10000")
     app.run(host="0.0.0.0", port=10000, debug=True)
