@@ -174,18 +174,26 @@ def get_sftp_credentials(account_name):
 def get_google_drive_file_path(filename):
     """Google Drive 内で指定したファイルの ID を取得"""
     try:
+        # normal-item 形式のファイル名検索対応
+        query = f"'{FOLDER_ID}' in parents and name contains 'normal-item_' and trashed=false"
         results = drive_service.files().list(
-            q=f"'{FOLDER_ID}' in parents and name='{filename}' and trashed=false",
+            q=query,
             fields="files(id, name)"
         ).execute()
         
         files = results.get("files", [])
-        if not files:
-            print(f"❌ Google Drive に {filename} が見つかりません")
-            return None
-
-        print(f"✅ Google Drive で {filename} の ID を取得: {files[0]['id']}")
-        return files[0]["id"]
+        
+        # 最新のファイルを取得
+        if files:
+            sorted_files = sorted(files, key=lambda x: x['name'], reverse=True)
+            matched_file = next((f for f in sorted_files if filename in f['name']), None)
+            
+            if matched_file:
+                print(f"✅ Google Drive で {matched_file['name']} の ID を取得: {matched_file['id']}")
+                return matched_file["id"]
+        
+        print(f"❌ Google Drive に {filename} は見つかりません")
+        return None
     except Exception as e:
         print(f"❌ Google Drive ファイル検索エラー: {e}")
         return None
@@ -214,60 +222,54 @@ def upload_sftp():
     """Google Drive からファイルをダウンロードし SFTP へアップロード"""
     try:
         data = request.get_json()
-
-        # ✅ リクエストデータの検証
+        
         if not isinstance(data, dict):
             return jsonify({"status": "error", "message": "リクエストフォーマットが不正です"}), 400
 
         account = data.get("account")
         filename = data.get("filename")
-
+        
         if not account or not filename:
             return jsonify({"status": "error", "message": "アカウントまたはファイル名が不足しています"}), 400
 
-        # ✅ SFTP 認証情報の取得
         username, password = get_sftp_credentials(account)
         if not username or not password:
             update_sheet_status(filename, "エラー", "FTPアカウント情報が見つかりません")
             return jsonify({"status": "error", "message": "FTPアカウント情報が見つかりません"}), 400
 
-        # ✅ Google Drive のファイル ID 取得
-        file_id = get_google_drive_file_path(filename)
+        # 修正後のファイル名ルールに対応する検索
+        file_id = get_google_drive_file_path("normal-item_" + filename)
         if not file_id:
             update_sheet_status(filename, "エラー", "Google Drive にファイルが見つかりません")
             return jsonify({"status": "error", "message": "Google Drive にファイルが見つかりません"}), 404
 
-        # ✅ 一時ディレクトリの作成
         tmp_dir = "/tmp" if platform.system() != "Windows" else "./tmp"
         os.makedirs(tmp_dir, exist_ok=True)
-
+        
         file_path = os.path.join(tmp_dir, filename)
         request_drive = drive_service.files().get_media(fileId=file_id)
-
-        # ✅ Google Drive からファイルをダウンロード
+        
         with open(file_path, "wb") as f:
             downloader = MediaIoBaseDownload(f, request_drive)
             done = False
             while not done:
                 status, done = downloader.next_chunk()
-
+        
         print(f"📂 ダウンロード完了: {file_path}")
-
-        # ✅ SFTP へアップロード
+        
         transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
         transport.connect(username=username, password=password)
         sftp = paramiko.SFTPClient.from_transport(transport)
-
+        
         remote_path = f"{SFTP_UPLOAD_PATH}/{filename}"
         sftp.put(file_path, remote_path)
         print(f"✅ SFTP アップロード成功: {filename}")
-
+        
         sftp.close()
         transport.close()
-
-        # ✅ Google Drive からファイル削除（エラーキャッチ追加）
+        
         delete_google_drive_file(file_id, filename)
-
+        
         update_sheet_status(filename, "アップロード完了")
         return jsonify({"status": "success", "message": f"{filename} のアップロード成功"}), 200
 
