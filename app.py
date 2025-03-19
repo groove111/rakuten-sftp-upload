@@ -232,38 +232,39 @@ def upload_sftp():
             return jsonify({"status": "error", "message": "FTPアカウント情報が見つかりません"}), 400
 
         # 修正後のファイル名ルールに対応する検索
-file_id = get_google_drive_file_path(filename)
+        file_id = get_google_drive_file_path(filename)  # ここを修正
+
         if not file_id:
             update_sheet_status(filename, "エラー", "Google Drive にファイルが見つかりません")
             return jsonify({"status": "error", "message": "Google Drive にファイルが見つかりません"}), 404
 
         tmp_dir = "/tmp" if platform.system() != "Windows" else "./tmp"
         os.makedirs(tmp_dir, exist_ok=True)
-        
+
         file_path = os.path.join(tmp_dir, filename)
         request_drive = drive_service.files().get_media(fileId=file_id)
-        
+
         with open(file_path, "wb") as f:
             downloader = MediaIoBaseDownload(f, request_drive)
             done = False
             while not done:
                 status, done = downloader.next_chunk()
-        
+
         print(f"📂 ダウンロード完了: {file_path}")
-        
+
         transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
         transport.connect(username=username, password=password)
         sftp = paramiko.SFTPClient.from_transport(transport)
-        
+
         remote_path = f"{SFTP_UPLOAD_PATH}/{filename}"
         sftp.put(file_path, remote_path)
         print(f"✅ SFTP アップロード成功: {filename}")
-        
+
         sftp.close()
         transport.close()
-        
+
         delete_google_drive_file(file_id, filename)
-        
+
         update_sheet_status(filename, "アップロード完了")
         return jsonify({"status": "success", "message": f"{filename} のアップロード成功"}), 200
 
@@ -271,8 +272,3 @@ file_id = get_google_drive_file_path(filename)
         print(f"❌ `/upload_sftp` でエラー: {str(e)}")
         update_sheet_status(filename, "エラー", str(e))
         return jsonify({"status": "error", "message": str(e)}), 500
-
-
-if __name__ == "__main__":
-    print("🚀 Flask サーバー起動: ポート 10000")
-    app.run(host="0.0.0.0", port=10000, debug=True)
