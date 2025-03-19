@@ -174,23 +174,17 @@ def get_sftp_credentials(account_name):
 def get_google_drive_file_path(filename):
     """Google Drive 内で指定したファイルの ID を取得"""
     try:
-        # normal-item 形式のファイル名検索対応
-        query = f"'{FOLDER_ID}' in parents and name contains 'normal-item_' and trashed=false"
+        query = f"'{FOLDER_ID}' in parents and name='{filename}' and trashed=false"
         results = drive_service.files().list(
             q=query,
             fields="files(id, name)"
         ).execute()
         
         files = results.get("files", [])
-        
-        # 最新のファイルを取得
+
         if files:
-            sorted_files = sorted(files, key=lambda x: x['name'], reverse=True)
-            matched_file = next((f for f in sorted_files if filename in f['name']), None)
-            
-            if matched_file:
-                print(f"✅ Google Drive で {matched_file['name']} の ID を取得: {matched_file['id']}")
-                return matched_file["id"]
+            print(f"✅ Google Drive で {files[0]['name']} の ID を取得: {files[0]['id']}")
+            return files[0]["id"]
         
         print(f"❌ Google Drive に {filename} は見つかりません")
         return None
@@ -238,7 +232,7 @@ def upload_sftp():
             return jsonify({"status": "error", "message": "FTPアカウント情報が見つかりません"}), 400
 
         # 修正後のファイル名ルールに対応する検索
-        file_id = get_google_drive_file_path("normal-item_" + filename)
+file_id = get_google_drive_file_path(filename)
         if not file_id:
             update_sheet_status(filename, "エラー", "Google Drive にファイルが見つかりません")
             return jsonify({"status": "error", "message": "Google Drive にファイルが見つかりません"}), 404
