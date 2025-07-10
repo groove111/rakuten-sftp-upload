@@ -26,8 +26,8 @@ creds = Credentials.from_service_account_info(creds_dict, scopes=[
 print("✅ Google認証成功")
 
 # 固定情報
-SPREADSHEET_ID = "1_t8pThdb0kFyIyRfNtC-VLsGa6HopgGQoEOqKyisjME"
-FOLDER_ID = "1ykCNsVXqi619OzXwLTqVJIm1WbqWcMgn"
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID") or "1_t8pThdb0kFyIyRfNtC-VLsGa6HopgGQoEOqKyisjME"
+FOLDER_ID = os.getenv("FOLDER_ID") or "1ykCNsVXqi619OzXwLTqVJIm1WbqWcMgn"
 SHEET_ACCOUNTS = "アカウント管理"
 SHEET_RESERVATIONS = "アップロード予約"
 SFTP_HOST = "upload.rakuten.ne.jp"
