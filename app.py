@@ -20,7 +20,6 @@ SFTP_UPLOAD_PATH = "/ritem/batch"
 
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
-
 try:
     print("🧪 base64デコード開始...")
     decoded_json = base64.b64decode(GOOGLE_CREDENTIALS_JSON).decode("utf-8")
@@ -60,28 +59,34 @@ def upload_sftp():
                 break
 
         if not found:
+            print("❌ FTPアカウント情報が見つかりません")
             return jsonify({"status": "error", "message": "FTPアカウント情報が見つかりません"}), 400
 
         ftp_user = found.get("FTP用ユーザー名")
         ftp_pass = found.get("FTP用パスワード")
 
-        # Google Drive からファイルID取得
-        response = drive_service.files().list(q=f"'{FOLDER_ID}' in parents and name='{filename}' and trashed=false", fields="files(id)").execute()
+        # Google Drive ファイル取得
+        response = drive_service.files().list(
+            q=f"'{FOLDER_ID}' in parents and name='{filename}' and trashed=false",
+            fields="files(id)"
+        ).execute()
         files = response.get("files", [])
         if not files:
+            print("❌ Google Drive にファイルが見つかりません")
             return jsonify({"status": "error", "message": "Google Drive にファイルが見つかりません"}), 404
 
         file_id = files[0]["id"]
         request_drive = drive_service.files().get_media(fileId=file_id)
 
         tmp_path = f"./tmp_{filename}"
+        os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
         with open(tmp_path, "wb") as f:
             downloader = MediaIoBaseDownload(f, request_drive)
             done = False
             while not done:
                 status, done = downloader.next_chunk()
 
-        # SFTPアップロード
+        # SFTP アップロード
         transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
         transport.connect(username=ftp_user, password=ftp_pass)
         sftp = paramiko.SFTPClient.from_transport(transport)
@@ -123,4 +128,4 @@ if __name__ == "__main__":
     if "test" in sys.argv:
         test_fetch_accounts()
     else:
-        app.run(debug=True)
+        app.run(host="0.0.0.0", port=10000, debug=True)
